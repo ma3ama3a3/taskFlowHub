@@ -1,0 +1,1239 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TaskFlow Hub - タスク管理</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <style>
+        /* カスタムスタイル */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+        }
+        .kanban-column {
+            min-height: 400px;
+            max-height: calc(100vh - 360px);
+            overflow-y: auto;
+            border-radius: 0.5rem;
+            background-color: white;
+            padding: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            transition: background-color 0.2s ease-in-out;
+        }
+        .task-card, .subtask-item {
+            transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out, opacity 0.2s ease-in-out;
+            border: 1px solid #e5e7eb; 
+            border-radius: 0.375rem; 
+        }
+        .task-card .task-name-link, .subtask-item .task-name-link {
+             cursor: pointer;
+             transition: color 0.2s ease-in-out;
+        }
+        .task-card .task-name-link:hover, .subtask-item .task-name-link:hover {
+            color: #4f46e5;
+            text-decoration: underline;
+        }
+        .task-card.draggable-card {
+            cursor: grab;
+        }
+        .task-card:hover:not(.draggable-card .task-name-link) {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1), 0 4px 8px -4px rgba(0, 0, 0, 0.07);
+        }
+        .task-card.dragging {
+            opacity: 0.5;
+            transform: rotate(3deg);
+        }
+        .kanban-column.drag-over {
+            background-color: #e0e7ff;
+            border: 2px dashed #818cf8;
+        }
+        .modal { transition: opacity 0.3s ease; }
+        .modal-content { transition: transform 0.3s ease, opacity 0.3s ease; }
+        .sticky-header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            background-color: white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .tab-button.active {
+            border-bottom-width: 3px;
+            border-color: #4f46e5;
+            color: #4f46e5;
+            font-weight: 600;
+        }
+        .tab-button {
+            transition: all 0.2s ease-in-out;
+            padding-bottom: 8px;
+        }
+        .avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: white;
+        }
+        .priority-high { color: #ef4444; }
+        .priority-medium { color: #f59e0b; }
+        .priority-low { color: #22c55e; }
+
+        .kanban-column::-webkit-scrollbar { width: 8px; }
+        .kanban-column::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 4px; }
+        .kanban-column::-webkit-scrollbar-track { background-color: #e5e7eb; }
+
+        .filter-section {
+            background-color: white;
+            padding: 1rem;
+            border-radius: 0.5rem;
+            box-shadow: 0 1px 3px 0 rgba(0,0,0,0.1), 0 1px 2px 0 rgba(0,0,0,0.06);
+            margin-bottom: 1.5rem;
+        }
+        .filter-input, .filter-select {
+            border-color: #d1d5db;
+            transition: border-color 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+        }
+        .filter-input:focus, .filter-select:focus {
+            border-color: #4f46e5;
+            box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.25);
+        }
+        .comment-section, .subtask-section {
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 0.5rem;
+        }
+        .comment, .subtask-item {
+            background-color: #f9fafb;
+            margin-bottom: 0.75rem;
+        }
+        .comment-meta {
+            font-size: 0.75rem;
+            color: #6b7280;
+        }
+        .comment-content, .subtask-item-name {
+            font-size: 0.875rem;
+            color: #374151;
+            margin-top: 0.25rem;
+            white-space: pre-wrap;
+        }
+        .comment-actions button, .task-actions button, .subtask-actions button {
+            background: none;
+            border: none;
+            padding: 0.25rem;
+            cursor: pointer;
+            color: #6b7280;
+            transition: color 0.2s ease-in-out;
+        }
+        .comment-actions button:hover, .task-actions button:hover, .subtask-actions button:hover {
+            color: #4f46e5;
+        }
+        .comment-edit-area textarea {
+            min-height: 60px;
+        }
+        .task-actions .duplicate-task-btn:hover, .subtask-actions .duplicate-task-btn:hover { color: #10b981; }
+        .task-actions .edit-task-btn:hover, .subtask-actions .edit-task-btn:hover { color: #3b82f6; }
+        .task-actions .delete-task-btn:hover, .subtask-actions .delete-task-btn:hover { color: #ef4444; }
+
+        .subtask-row td:first-child {
+            padding-left: 2.5rem !important;
+        }
+        .subtask-row .task-name-link::before {
+            content: "↳";
+            margin-right: 0.5rem;
+            color: #9ca3af;
+        }
+        .subtask-list-card {
+            margin-top: 0.75rem;
+            padding-left: 0.5rem;
+            border-left: 2px solid #e5e7eb;
+        }
+        .subtask-list-card .subtask-item {
+            padding: 0.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+         .subtask-list-card .subtask-item-name.completed {
+            text-decoration: line-through;
+            color: #9ca3af;
+        }
+    </style>
+</head>
+<body class="text-gray-800 antialiased">
+
+    <header class="sticky-header p-4">
+        <div class="container mx-auto flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-indigo-600">TaskFlow Hub</h1>
+            <div>
+                <button class="p-2 rounded-full hover:bg-gray-200 transition-colors">
+                    <i class="fas fa-user-circle text-2xl text-gray-600"></i>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-4 mt-4">
+        <div class="filter-section">
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 items-end">
+                <div class="lg:col-span-2 xl:col-span-2">
+                    <label for="searchInput" class="block text-sm font-medium text-gray-700 mb-1">キーワード検索</label>
+                    <input type="text" id="searchInput" placeholder="タスク名、説明で検索..." class="filter-input w-full px-3 py-2 border rounded-md shadow-sm text-sm">
+                </div>
+                <div>
+                    <label for="filterAssignee" class="block text-sm font-medium text-gray-700 mb-1">担当者</label>
+                    <select id="filterAssignee" class="filter-select w-full px-3 py-2 border rounded-md shadow-sm text-sm">
+                        <option value="">すべて</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="filterPriority" class="block text-sm font-medium text-gray-700 mb-1">優先度</label>
+                    <select id="filterPriority" class="filter-select w-full px-3 py-2 border rounded-md shadow-sm text-sm">
+                        <option value="">すべて</option>
+                        <option value="high">高</option>
+                        <option value="medium">中</option>
+                        <option value="low">低</option>
+                    </select>
+                </div>
+                 <div>
+                    <label for="filterStatus" class="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
+                    <select id="filterStatus" class="filter-select w-full px-3 py-2 border rounded-md shadow-sm text-sm">
+                        <option value="">すべて</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="filterDueDate" class="block text-sm font-medium text-gray-700 mb-1">期限日</label>
+                    <select id="filterDueDate" class="filter-select w-full px-3 py-2 border rounded-md shadow-sm text-sm">
+                        <option value="">すべて</option>
+                        <option value="today">今日が期限</option>
+                        <option value="tomorrow">明日が期限</option>
+                        <option value="thisWeek">今週が期限</option>
+                        <option value="overdue">期限切れ</option>
+                    </select>
+                </div>
+                <div class="xl:col-start-6">
+                    <button id="clearFiltersBtn" class="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 px-4 rounded-md shadow-sm text-sm transition duration-150">
+                        <i class="fas fa-times mr-2"></i>クリア
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+                <button id="showKanbanBtn" class="tab-button active text-indigo-600 py-2 px-4 focus:outline-none">
+                    <i class="fas fa-columns mr-2"></i>カンバン表示
+                </button>
+                <button id="showListBtn" class="tab-button text-gray-500 hover:text-indigo-600 py-2 px-4 focus:outline-none">
+                    <i class="fas fa-list-ul mr-2"></i>リスト表示
+                </button>
+            </div>
+            <button id="openTaskModalBtn" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-150 ease-in-out flex items-center">
+                <i class="fas fa-plus mr-2"></i>新しいタスクを作成
+            </button>
+        </div>
+
+        <div id="taskArea">
+            <div id="kanbanView" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+            <div id="listView" class="hidden bg-white p-4 rounded-lg shadow-lg">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">タスク名</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">担当者</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">期限日</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">優先度</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ステータス</th>
+                            <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">アクション</th>
+                        </tr>
+                    </thead>
+                    <tbody id="taskListBody" class="bg-white divide-y divide-gray-200"></tbody>
+                </table>
+            </div>
+        </div>
+    </main>
+
+    <div id="taskModal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-6 sm:p-8 w-full max-w-lg transform scale-95 opacity-0">
+            <div class="flex justify-between items-center mb-6">
+                <h2 id="modalTitle" class="text-2xl font-semibold text-gray-800">新しいタスクを作成</h2>
+                <button id="closeTaskModalBtn" class="text-gray-500 hover:text-gray-700 text-2xl focus:outline-none transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <form id="taskForm">
+                <input type="hidden" id="taskId" name="taskId">
+                <div class="mb-5">
+                    <label for="taskParent" class="block text-sm font-medium text-gray-700 mb-1">親タスク (サブタスクの場合)</label>
+                    <select id="taskParent" name="taskParent" class="filter-select w-full px-3 py-2.5 border rounded-md shadow-sm text-sm">
+                        <option value="">なし (メインタスク)</option>
+                        </select>
+                </div>
+                <div class="mb-5">
+                    <label for="taskName" class="block text-sm font-medium text-gray-700 mb-1">タスク名 <span class="text-red-500">*</span></label>
+                    <input type="text" id="taskName" name="taskName" required class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="例: 新機能の企画書作成">
+                    <p id="taskNameError" class="text-red-500 text-xs mt-1 hidden">タスク名は必須です。</p>
+                </div>
+                <div class="mb-5">
+                    <label for="taskDescription" class="block text-sm font-medium text-gray-700 mb-1">説明</label>
+                    <textarea id="taskDescription" name="taskDescription" rows="3" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="タスクの詳細や補足事項を入力"></textarea>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
+                    <div>
+                        <label for="taskAssignee" class="block text-sm font-medium text-gray-700 mb-1">担当者</label>
+                        <select id="taskAssignee" name="taskAssignee" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                            <option value="">未割り当て</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="taskDueDate" class="block text-sm font-medium text-gray-700 mb-1">期限日</label>
+                        <input type="date" id="taskDueDate" name="taskDueDate" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-6">
+                    <div>
+                        <label for="taskPriority" class="block text-sm font-medium text-gray-700 mb-1">優先度</label>
+                        <select id="taskPriority" name="taskPriority" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                            <option value="low">低</option>
+                            <option value="medium" selected>中</option>
+                            <option value="high">高</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label for="taskStatusModal" name="taskStatusModal" class="block text-sm font-medium text-gray-700 mb-1">ステータス</label>
+                        <select id="taskStatusModal" class="w-full px-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition duration-150">
+                        </select>
+                    </div>
+                </div>
+                <div class="flex justify-end space-x-3">
+                    <button type="button" id="cancelTaskBtn" class="px-5 py-2.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-400 transition duration-150">
+                        キャンセル
+                    </button>
+                    <button type="submit" id="saveTaskBtn" class="px-5 py-2.5 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm hover:shadow-md transition duration-150 flex items-center">
+                        <i class="fas fa-save mr-2"></i><span id="saveButtonText">タスクを作成</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="taskDetailModal" class="modal fixed inset-0 bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 opacity-0 pointer-events-none">
+        <div class="modal-content bg-white rounded-xl shadow-2xl p-6 sm:p-8 w-full max-w-2xl transform scale-95 opacity-0">
+            <div class="flex justify-between items-center mb-4">
+                <h2 id="taskDetailName" class="text-2xl font-semibold text-gray-800">タスク詳細</h2>
+                <button id="closeTaskDetailModalBtn" class="text-gray-500 hover:text-gray-700 text-2xl focus:outline-none transition-colors">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            <div class="mb-6 space-y-3 text-sm">
+                <p><strong>説明:</strong> <span id="taskDetailDescription" class="text-gray-700 whitespace-pre-wrap"></span></p>
+                <div class="grid grid-cols-2 gap-x-4 gap-y-2">
+                    <p><strong>担当者:</strong> <span id="taskDetailAssignee" class="text-gray-700"></span></p>
+                    <p><strong>期限日:</strong> <span id="taskDetailDueDate" class="text-gray-700"></span></p>
+                    <p><strong>優先度:</strong> <span id="taskDetailPriority" class="text-gray-700"></span></p>
+                    <p><strong>ステータス:</strong> <span id="taskDetailStatus" class="text-gray-700"></span></p>
+                </div>
+                 <div id="parentTaskLinkContainer" class="hidden mt-2">
+                    <strong>親タスク:</strong> <a href="#" id="parentTaskLink" class="text-indigo-600 hover:underline"></a>
+                </div>
+            </div>
+            <div class="mb-6">
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-lg font-semibold text-gray-700">サブタスク</h3>
+                    <button id="openAddSubtaskModalBtn" class="text-sm bg-indigo-100 hover:bg-indigo-200 text-indigo-700 font-semibold py-1.5 px-3 rounded-md transition duration-150">
+                        <i class="fas fa-plus mr-1.5"></i>サブタスクを追加
+                    </button>
+                </div>
+                <div id="subtaskDetailContainer" class="subtask-section space-y-2">
+                    </div>
+            </div>
+
+            <div class="mb-6">
+                <h3 class="text-lg font-semibold text-gray-700 mb-3 border-t pt-4">コメント</h3>
+                <div id="commentsContainer" class="comment-section space-y-3"></div>
+            </div>
+            <form id="commentForm">
+                <input type="hidden" id="commentTaskId">
+                <div>
+                    <label for="commentContent" class="block text-sm font-medium text-gray-700 mb-1">新しいコメントを追加</label>
+                    <textarea id="commentContent" name="commentContent" rows="3" required class="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500 transition duration-150" placeholder="コメントを入力..."></textarea>
+                </div>
+                <div class="mt-3 flex justify-end">
+                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-md shadow-sm transition duration-150">
+                        <i class="fas fa-paper-plane mr-2"></i>コメントを投稿
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // --- グローバル変数・定数 ---
+        const kanbanViewEl = document.getElementById('kanbanView');
+        const listViewEl = document.getElementById('listView');
+        const showKanbanBtn = document.getElementById('showKanbanBtn');
+        const showListBtn = document.getElementById('showListBtn');
+        const taskListBody = document.getElementById('taskListBody');
+
+        const taskModal = document.getElementById('taskModal');
+        const modalContent = taskModal.querySelector('.modal-content');
+        const openTaskModalBtn = document.getElementById('openTaskModalBtn');
+        const closeTaskModalBtn = document.getElementById('closeTaskModalBtn');
+        const cancelTaskBtn = document.getElementById('cancelTaskBtn');
+        const taskForm = document.getElementById('taskForm');
+        const modalTitle = document.getElementById('modalTitle');
+        const saveButtonText = document.getElementById('saveButtonText');
+        const taskIdInput = document.getElementById('taskId');
+        const taskParentSelect = document.getElementById('taskParent');
+        const taskNameInput = document.getElementById('taskName');
+        const taskNameError = document.getElementById('taskNameError');
+        const taskStatusModalSelect = document.getElementById('taskStatusModal');
+
+        const taskDetailModal = document.getElementById('taskDetailModal');
+        const taskDetailModalContent = taskDetailModal.querySelector('.modal-content');
+        const closeTaskDetailModalBtn = document.getElementById('closeTaskDetailModalBtn');
+        const taskDetailName = document.getElementById('taskDetailName');
+        const taskDetailDescription = document.getElementById('taskDetailDescription');
+        const taskDetailAssignee = document.getElementById('taskDetailAssignee');
+        const taskDetailDueDate = document.getElementById('taskDetailDueDate');
+        const taskDetailPriority = document.getElementById('taskDetailPriority');
+        const taskDetailStatus = document.getElementById('taskDetailStatus');
+        const parentTaskLinkContainer = document.getElementById('parentTaskLinkContainer');
+        const parentTaskLink = document.getElementById('parentTaskLink');
+        const subtaskDetailContainer = document.getElementById('subtaskDetailContainer');
+        const openAddSubtaskModalBtn = document.getElementById('openAddSubtaskModalBtn');
+
+        const commentsContainer = document.getElementById('commentsContainer');
+        const commentForm = document.getElementById('commentForm');
+        const commentTaskIdInput = document.getElementById('commentTaskId');
+        const commentContentInput = document.getElementById('commentContent');
+
+        const searchInput = document.getElementById('searchInput');
+        const filterAssigneeSelect = document.getElementById('filterAssignee');
+        const filterPrioritySelect = document.getElementById('filterPriority');
+        const filterStatusSelect = document.getElementById('filterStatus');
+        const filterDueDateSelect = document.getElementById('filterDueDate');
+        const clearFiltersBtn = document.getElementById('clearFiltersBtn');
+
+        const STATUSES = ['未着手', '進行中', 'レビュー待ち', '完了'];
+        const ALL_ASSIGNEES = ['山田太郎', '鈴木一郎', '佐藤花子', '田中次郎'];
+        const CURRENT_USER_NAME = "現在のユーザー";
+
+        // 初期タスクデータを1つだけにする
+        let tasks = [
+            {
+                id: Date.now() + 1,
+                name: 'TaskFlow Hubの機能改善',
+                description: 'ユーザーインターフェースの調整と新機能の検討を行う。',
+                assignee: '山田太郎',
+                dueDate: '2025-05-30',
+                priority: 'high',
+                status: '進行中',
+                comments: [
+                    {id: Date.now()+101, taskId: Date.now()+1, userName: "佐藤花子", content: "UIの配色案をいくつか提案します。", createdAt: new Date(Date.now() - 24*60*60*1000).toISOString()},
+                    {id: Date.now()+102, taskId: Date.now()+1, userName: CURRENT_USER_NAME, content: "ありがとうございます。確認します。", createdAt: new Date().toISOString()},
+                ],
+                parentId: null,
+                isSubtaskComplete: false
+            }
+        ];
+        let currentView = 'kanban';
+        let editingTaskId = null;
+        let viewingTaskId = null;
+        let draggedTaskId = null;
+        let editingCommentId = null;
+
+        document.addEventListener('DOMContentLoaded', () => {
+            populateDropdowns();
+            renderTasks();
+            setupEventListeners();
+        });
+
+        function setupEventListeners() {
+            showKanbanBtn.addEventListener('click', () => switchView('kanban'));
+            showListBtn.addEventListener('click', () => switchView('list'));
+            
+            openTaskModalBtn.addEventListener('click', () => openCreateEditModal(null));
+            closeTaskModalBtn.addEventListener('click', closeCreateEditModal);
+            cancelTaskBtn.addEventListener('click', closeCreateEditModal);
+            taskModal.addEventListener('click', (event) => {
+                if (event.target === taskModal) closeCreateEditModal();
+            });
+            taskForm.addEventListener('submit', handleTaskFormSubmit);
+
+            closeTaskDetailModalBtn.addEventListener('click', closeTaskDetailModal);
+            taskDetailModal.addEventListener('click', (event) => {
+                if (event.target === taskDetailModal) closeTaskDetailModal();
+            });
+            commentForm.addEventListener('submit', handleCommentSubmit);
+            commentsContainer.addEventListener('click', handleCommentAction);
+            subtaskDetailContainer.addEventListener('click', handleSubtaskAction);
+            openAddSubtaskModalBtn.addEventListener('click', () => {
+                if(viewingTaskId) openCreateEditModal(null, viewingTaskId);
+            });
+            parentTaskLink.addEventListener('click', (e) => {
+                e.preventDefault();
+                const parentId = Number(e.target.dataset.parentId);
+                if(parentId) {
+                    closeTaskDetailModal();
+                    openTaskDetailModal(parentId);
+                }
+            });
+
+            kanbanViewEl.addEventListener('dragstart', handleDragStart);
+            kanbanViewEl.addEventListener('dragend', handleDragEnd);
+            kanbanViewEl.addEventListener('dragover', handleDragOver);
+            kanbanViewEl.addEventListener('dragenter', handleDragEnter);
+            kanbanViewEl.addEventListener('dragleave', handleDragLeave);
+            kanbanViewEl.addEventListener('drop', handleDrop);
+
+            searchInput.addEventListener('input', () => renderTasks());
+            filterAssigneeSelect.addEventListener('change', () => renderTasks());
+            filterPrioritySelect.addEventListener('change', () => renderTasks());
+            filterStatusSelect.addEventListener('change', () => renderTasks());
+            filterDueDateSelect.addEventListener('change', () => renderTasks());
+            clearFiltersBtn.addEventListener('click', clearFilters);
+        }
+        
+        function populateDropdowns() {
+            const taskAssigneeModalSelect = document.getElementById('taskAssignee');
+            taskAssigneeModalSelect.innerHTML = '<option value="">未割り当て</option>'; 
+            ALL_ASSIGNEES.forEach(assignee => {
+                const option = document.createElement('option');
+                option.value = assignee;
+                option.textContent = assignee;
+                filterAssigneeSelect.appendChild(option.cloneNode(true));
+                taskAssigneeModalSelect.appendChild(option);
+            });
+
+            filterStatusSelect.innerHTML = '<option value="">すべて</option>';
+            taskStatusModalSelect.innerHTML = '';
+            STATUSES.forEach(status => {
+                const option = document.createElement('option');
+                option.value = status;
+                option.textContent = status;
+                filterStatusSelect.appendChild(option.cloneNode(true));
+                taskStatusModalSelect.appendChild(option);
+            });
+            populateParentTaskDropdown();
+        }
+
+        function populateParentTaskDropdown() {
+            taskParentSelect.innerHTML = '<option value="">なし (メインタスク)</option>';
+            const mainTasks = tasks.filter(task => !task.parentId);
+            mainTasks.forEach(task => {
+                if (editingTaskId && task.id === editingTaskId) return;
+                if (editingTaskId && isDescendant(task.id, editingTaskId)) return;
+
+                const option = document.createElement('option');
+                option.value = task.id;
+                option.textContent = task.name;
+                taskParentSelect.appendChild(option);
+            });
+        }
+        function isDescendant(potentialParentId, editingTargetId) {
+            let currentTask = tasks.find(t => t.id === editingTargetId);
+            while (currentTask && currentTask.parentId) {
+                if (currentTask.parentId === potentialParentId) {
+                    return true;
+                }
+                currentTask = tasks.find(t => t.id === currentTask.parentId);
+            }
+            return false;
+        }
+
+        function switchView(viewType) {
+            currentView = viewType;
+            if (viewType === 'kanban') {
+                kanbanViewEl.classList.remove('hidden');
+                listViewEl.classList.add('hidden');
+                showKanbanBtn.classList.add('active', 'text-indigo-600');
+                showKanbanBtn.classList.remove('text-gray-500');
+                showListBtn.classList.remove('active', 'text-indigo-600');
+                showListBtn.classList.add('text-gray-500');
+            } else {
+                listViewEl.classList.remove('hidden');
+                kanbanViewEl.classList.add('hidden');
+                showListBtn.classList.add('active', 'text-indigo-600');
+                showListBtn.classList.remove('text-gray-500');
+                showKanbanBtn.classList.remove('active', 'text-indigo-600');
+                showKanbanBtn.classList.add('text-gray-500');
+            }
+            renderTasks();
+        }
+
+        function openCreateEditModal(taskIdToEdit, defaultParentId = null) {
+            editingTaskId = taskIdToEdit;
+            populateParentTaskDropdown();
+
+            if (taskIdToEdit) {
+                const task = tasks.find(t => t.id === taskIdToEdit);
+                if (!task) return;
+                modalTitle.textContent = 'タスクを編集';
+                saveButtonText.textContent = '変更を保存';
+                taskIdInput.value = task.id;
+                taskParentSelect.value = task.parentId || "";
+                taskNameInput.value = task.name;
+                document.getElementById('taskDescription').value = task.description || '';
+                document.getElementById('taskAssignee').value = task.assignee || '';
+                document.getElementById('taskDueDate').value = task.dueDate || '';
+                document.getElementById('taskPriority').value = task.priority || 'medium';
+                taskStatusModalSelect.value = task.status || '未着手';
+            } else {
+                modalTitle.textContent = '新しいタスクを作成';
+                saveButtonText.textContent = 'タスクを作成';
+                taskForm.reset();
+                taskIdInput.value = '';
+                taskParentSelect.value = defaultParentId ? String(defaultParentId) : "";
+                document.getElementById('taskAssignee').value = "";
+                document.getElementById('taskPriority').value = 'medium';
+                taskStatusModalSelect.value = '未着手';
+            }
+            taskNameError.classList.add('hidden');
+            taskModal.classList.remove('opacity-0', 'pointer-events-none');
+            modalContent.classList.remove('scale-95', 'opacity-0');
+            modalContent.classList.add('scale-100', 'opacity-100');
+        }
+
+        function closeCreateEditModal() {
+            modalContent.classList.remove('scale-100', 'opacity-100');
+            modalContent.classList.add('scale-95', 'opacity-0');
+            taskModal.classList.add('opacity-0');
+            setTimeout(() => {
+                taskModal.classList.add('pointer-events-none');
+            }, 300);
+        }
+
+        function openTaskDetailModal(taskIdToView) {
+            viewingTaskId = taskIdToView;
+            const task = tasks.find(t => t.id === taskIdToView);
+            if (!task) return;
+
+            taskDetailName.textContent = task.name;
+            taskDetailDescription.textContent = task.description || '説明なし';
+            taskDetailAssignee.textContent = task.assignee || '未割り当て';
+            taskDetailDueDate.textContent = task.dueDate ? formatDate(task.dueDate) : '期限なし';
+            const priorityInfo = getPriorityIcon(task.priority);
+            taskDetailPriority.innerHTML = `<span class="flex items-center ${priorityInfo.colorClass}">${priorityInfo.icon} <span class="ml-1.5">${priorityInfo.text}</span></span>`;
+            taskDetailStatus.innerHTML = `<span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColorClass(task.status)}">${task.status}</span>`;
+            
+            if (task.parentId) {
+                const parent = tasks.find(p => p.id === task.parentId);
+                if (parent) {
+                    parentTaskLink.textContent = parent.name;
+                    parentTaskLink.dataset.parentId = parent.id;
+                    parentTaskLinkContainer.classList.remove('hidden');
+                } else {
+                    parentTaskLinkContainer.classList.add('hidden');
+                }
+            } else {
+                parentTaskLinkContainer.classList.add('hidden');
+            }
+
+            commentTaskIdInput.value = task.id;
+            renderComments(task.id);
+            renderSubtasksInDetailModal(task.id);
+
+            taskDetailModal.classList.remove('opacity-0', 'pointer-events-none');
+            taskDetailModalContent.classList.remove('scale-95', 'opacity-0');
+            taskDetailModalContent.classList.add('scale-100', 'opacity-100');
+        }
+
+        function closeTaskDetailModal() {
+            taskDetailModalContent.classList.remove('scale-100', 'opacity-100');
+            taskDetailModalContent.classList.add('scale-95', 'opacity-0');
+            taskDetailModal.classList.add('opacity-0');
+            setTimeout(() => {
+                taskDetailModal.classList.add('pointer-events-none');
+                viewingTaskId = null;
+                editingCommentId = null;
+            }, 300);
+        }
+        
+        function renderComments(taskId) {
+            commentsContainer.innerHTML = '';
+            const task = tasks.find(t => t.id === taskId);
+            if (!task || !task.comments || task.comments.length === 0) {
+                commentsContainer.innerHTML = '<p class="text-sm text-gray-500 italic">まだコメントはありません。</p>';
+                return;
+            }
+            task.comments.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).forEach(comment => {
+                const commentEl = document.createElement('div');
+                commentEl.className = 'comment';
+                commentEl.dataset.commentId = comment.id;
+                let commentActionsHtml = '';
+                if (comment.userName === CURRENT_USER_NAME) {
+                    commentActionsHtml = `
+                        <div class="comment-actions space-x-2">
+                            <button class="edit-comment-btn" title="編集"><i class="fas fa-edit"></i></button>
+                            <button class="delete-comment-btn" title="削除"><i class="fas fa-trash-alt"></i></button>
+                        </div>
+                    `;
+                }
+                if (editingCommentId === comment.id) {
+                     commentEl.innerHTML = `
+                        <div class="comment-edit-area">
+                            <textarea class="w-full p-2 border border-gray-300 rounded-md text-sm">${comment.content}</textarea>
+                            <div class="mt-2 flex justify-end space-x-2">
+                                <button class="save-edited-comment-btn bg-indigo-500 text-white px-3 py-1 rounded-md text-xs hover:bg-indigo-600">保存</button>
+                                <button class="cancel-edit-comment-btn bg-gray-200 text-gray-700 px-3 py-1 rounded-md text-xs hover:bg-gray-300">キャンセル</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    commentEl.innerHTML = `
+                        <div class="flex justify-between items-start">
+                            <div class="comment-meta">
+                                <span class="font-semibold">${comment.userName}</span>
+                                <span class="ml-2">${formatDateTime(comment.createdAt)}</span>
+                            </div>
+                            ${commentActionsHtml}
+                        </div>
+                        <p class="comment-content">${comment.content.replace(/\n/g, '<br>')}</p>
+                    `;
+                }
+                commentsContainer.appendChild(commentEl);
+            });
+        }
+
+        function handleCommentAction(event) {
+            const target = event.target;
+            const commentDiv = target.closest('.comment');
+            if (!commentDiv) return;
+            const commentId = Number(commentDiv.dataset.commentId);
+            const taskId = viewingTaskId;
+            if (target.closest('.edit-comment-btn')) {
+                editingCommentId = commentId;
+                renderComments(taskId);
+            } else if (target.closest('.delete-comment-btn')) {
+                deleteComment(taskId, commentId);
+            } else if (target.closest('.save-edited-comment-btn')) {
+                const newContent = commentDiv.querySelector('textarea').value.trim();
+                saveEditedComment(taskId, commentId, newContent);
+            } else if (target.closest('.cancel-edit-comment-btn')) {
+                editingCommentId = null;
+                renderComments(taskId);
+            }
+        }
+
+        function saveEditedComment(taskId, commentId, newContent) {
+            const taskIndex = tasks.findIndex(t => t.id === taskId);
+            if (taskIndex === -1 || !tasks[taskIndex].comments) return;
+            const commentIndex = tasks[taskIndex].comments.findIndex(c => c.id === commentId);
+            if (commentIndex === -1) return;
+            if (newContent) {
+                tasks[taskIndex].comments[commentIndex].content = newContent;
+                tasks[taskIndex].comments[commentIndex].updatedAt = new Date().toISOString();
+            }
+            editingCommentId = null;
+            renderComments(taskId);
+        }
+
+        function deleteComment(taskId, commentId) {
+            if (!confirm('このコメントを削除してもよろしいですか？')) return;
+            const taskIndex = tasks.findIndex(t => t.id === taskId);
+            if (taskIndex === -1 || !tasks[taskIndex].comments) return;
+            tasks[taskIndex].comments = tasks[taskIndex].comments.filter(c => c.id !== commentId);
+            renderComments(taskId);
+        }
+        
+        function handleCommentSubmit(event) {
+            event.preventDefault();
+            const content = commentContentInput.value.trim();
+            const taskId = Number(commentTaskIdInput.value);
+            if (!content || !taskId) return;
+            const taskIndex = tasks.findIndex(t => t.id === taskId);
+            if (taskIndex === -1) return;
+            const newComment = {
+                id: Date.now(),
+                taskId: taskId,
+                userName: CURRENT_USER_NAME,
+                content: content,
+                createdAt: new Date().toISOString()
+            };
+            if (!tasks[taskIndex].comments) {
+                tasks[taskIndex].comments = [];
+            }
+            tasks[taskIndex].comments.push(newComment);
+            renderComments(taskId);
+            commentForm.reset();
+        }
+
+        function handleTaskFormSubmit(event) {
+            event.preventDefault();
+            const name = taskNameInput.value.trim();
+            if (!name) {
+                taskNameError.classList.remove('hidden');
+                taskNameInput.focus();
+                return;
+            }
+            taskNameError.classList.add('hidden');
+
+            const parentIdValue = taskParentSelect.value;
+
+            const taskData = {
+                id: editingTaskId ? Number(editingTaskId) : Date.now(),
+                name: name,
+                description: document.getElementById('taskDescription').value.trim(),
+                assignee: document.getElementById('taskAssignee').value,
+                dueDate: document.getElementById('taskDueDate').value,
+                priority: document.getElementById('taskPriority').value,
+                status: taskStatusModalSelect.value,
+                comments: editingTaskId ? (tasks.find(t => t.id === Number(editingTaskId))?.comments || []) : [],
+                parentId: parentIdValue ? Number(parentIdValue) : null,
+                isSubtaskComplete: editingTaskId ? (tasks.find(t => t.id === Number(editingTaskId))?.isSubtaskComplete || false) : false,
+            };
+
+            if (editingTaskId) {
+                tasks = tasks.map(t => t.id === Number(editingTaskId) ? taskData : t);
+            } else {
+                tasks.push(taskData);
+            }
+            renderTasks();
+            closeCreateEditModal();
+        }
+
+        function deleteTask(taskId) {
+            const taskToDelete = tasks.find(t => t.id === taskId);
+            if (!taskToDelete) return;
+
+            let confirmMessage = 'このタスクを削除してもよろしいですか？';
+            const childSubtasks = tasks.filter(st => st.parentId === taskId);
+            if (childSubtasks.length > 0) {
+                confirmMessage += `\nこのタスクには ${childSubtasks.length} 件のサブタスクがあります。サブタスクも一緒に削除されます。`;
+            }
+
+            if (confirm(confirmMessage)) {
+                tasks = tasks.filter(t => t.id !== taskId && t.parentId !== taskId);
+                renderTasks();
+            }
+        }
+        
+        function duplicateTask(taskId) {
+            const originalTask = tasks.find(t => t.id === taskId);
+            if (!originalTask) return;
+            const newTask = {
+                ...originalTask,
+                id: Date.now(),
+                name: originalTask.name + " のコピー",
+                status: '未着手',
+                dueDate: '',
+                comments: [],
+                parentId: originalTask.parentId,
+                isSubtaskComplete: false
+            };
+            tasks.push(newTask);
+            renderTasks();
+        }
+
+        function renderSubtasksInDetailModal(parentTaskId) {
+            subtaskDetailContainer.innerHTML = '';
+            const subtasksOfParent = tasks.filter(t => t.parentId === parentTaskId);
+            if (subtasksOfParent.length === 0) {
+                subtaskDetailContainer.innerHTML = '<p class="text-sm text-gray-500 italic">サブタスクはありません。</p>';
+                return;
+            }
+            subtasksOfParent.forEach(subtask => {
+                const subtaskEl = document.createElement('div');
+                subtaskEl.className = 'subtask-item flex items-center justify-between p-2 hover:bg-gray-100';
+                subtaskEl.dataset.subtaskId = subtask.id;
+                subtaskEl.innerHTML = `
+                    <div class="flex items-center">
+                        <input type="checkbox" class="form-checkbox h-4 w-4 text-indigo-600 border-gray-300 rounded mr-3 toggle-subtask-completion" ${subtask.isSubtaskComplete ? 'checked' : ''}>
+                        <span class="subtask-item-name ${subtask.isSubtaskComplete ? 'completed' : ''}">${subtask.name}</span>
+                    </div>
+                    <div class="subtask-actions space-x-1">
+                        <button class="edit-subtask-btn text-xs" title="サブタスクを編集"><i class="fas fa-edit"></i></button>
+                        <button class="delete-subtask-btn text-xs" title="サブタスクを削除"><i class="fas fa-trash-alt"></i></button>
+                    </div>
+                `;
+                subtaskDetailContainer.appendChild(subtaskEl);
+            });
+        }
+
+        function handleSubtaskAction(event) {
+            const target = event.target;
+            const subtaskItemDiv = target.closest('.subtask-item');
+            if (!subtaskItemDiv) return;
+
+            const subtaskId = Number(subtaskItemDiv.dataset.subtaskId);
+
+            if (target.classList.contains('toggle-subtask-completion') || target.closest('.toggle-subtask-completion')) {
+                toggleSubtaskCompletion(subtaskId);
+            } else if (target.closest('.edit-subtask-btn')) {
+                closeTaskDetailModal();
+                openCreateEditModal(subtaskId);
+            } else if (target.closest('.delete-subtask-btn')) {
+                deleteTask(subtaskId);
+                if (viewingTaskId) renderSubtasksInDetailModal(viewingTaskId);
+            }
+        }
+        
+        function toggleSubtaskCompletion(subtaskId) {
+            const taskIndex = tasks.findIndex(t => t.id === subtaskId);
+            if (taskIndex !== -1) {
+                tasks[taskIndex].isSubtaskComplete = !tasks[taskIndex].isSubtaskComplete;
+                if (viewingTaskId) {
+                     renderSubtasksInDetailModal(viewingTaskId);
+                }
+                renderTasks();
+            }
+        }
+
+        function getFilteredTasks() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedAssignee = filterAssigneeSelect.value;
+            const selectedPriority = filterPrioritySelect.value;
+            const selectedStatus = filterStatusSelect.value;
+            const selectedDueDateOption = filterDueDateSelect.value;
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const filteredMainTasks = tasks.filter(task => {
+                if (task.parentId) return false;
+
+                const nameMatch = task.name.toLowerCase().includes(searchTerm);
+                const descriptionMatch = task.description && task.description.toLowerCase().includes(searchTerm);
+                const keywordMatch = nameMatch || descriptionMatch;
+                const assigneeMatch = !selectedAssignee || task.assignee === selectedAssignee;
+                const priorityMatch = !selectedPriority || task.priority === selectedPriority;
+                const statusMatch = !selectedStatus || task.status === selectedStatus;
+
+                let dueDateMatch = true;
+                if (selectedDueDateOption && task.dueDate) {
+                    const taskDueDate = new Date(task.dueDate);
+                    taskDueDate.setHours(0,0,0,0);
+                    switch (selectedDueDateOption) {
+                        case 'today': dueDateMatch = taskDueDate.getTime() === today.getTime(); break;
+                        case 'tomorrow': const tomorrow = new Date(today); tomorrow.setDate(today.getDate() + 1); dueDateMatch = taskDueDate.getTime() === tomorrow.getTime(); break;
+                        case 'thisWeek': const startOfWeek = new Date(today); startOfWeek.setDate(today.getDate() - today.getDay() + (today.getDay() === 0 ? -6 : 1)); const endOfWeek = new Date(startOfWeek); endOfWeek.setDate(startOfWeek.getDate() + 6); dueDateMatch = taskDueDate >= startOfWeek && taskDueDate <= endOfWeek; break;
+                        case 'overdue': dueDateMatch = task.status !== '完了' && taskDueDate < today; break;
+                    }
+                } else if (selectedDueDateOption) { dueDateMatch = false; }
+                return keywordMatch && assigneeMatch && priorityMatch && statusMatch && dueDateMatch;
+            });
+
+            const resultTasks = [...filteredMainTasks];
+            const mainTaskIds = filteredMainTasks.map(mt => mt.id);
+
+            tasks.forEach(task => {
+                if (task.parentId && mainTaskIds.includes(task.parentId) && !resultTasks.find(rt => rt.id === task.id)) {
+                    resultTasks.push(task);
+                }
+            });
+            return resultTasks;
+        }
+
+        function clearFilters() {
+            searchInput.value = '';
+            filterAssigneeSelect.value = '';
+            filterPrioritySelect.value = '';
+            filterStatusSelect.value = '';
+            filterDueDateSelect.value = '';
+            renderTasks();
+        }
+
+        function renderTasks() {
+            const tasksToDisplay = getFilteredTasks();
+            if (currentView === 'kanban') {
+                renderKanbanView(tasksToDisplay);
+            } else {
+                renderListView(tasksToDisplay);
+            }
+        }
+
+        function renderKanbanView(tasksToRender) {
+            kanbanViewEl.innerHTML = '';
+            STATUSES.forEach(status => {
+                const column = document.createElement('div');
+                column.className = 'kanban-column';
+                column.dataset.status = status;
+                column.innerHTML = `<h2 class="text-xl font-semibold mb-4 text-gray-700 border-b pb-2">${status}</h2><div class="space-y-3 task-list-container"></div>`;
+                kanbanViewEl.appendChild(column);
+                const taskListContainer = column.querySelector('.task-list-container');
+                const mainTasksInColumn = tasksToRender.filter(task => !task.parentId && task.status === status);
+                
+                if (mainTasksInColumn.length === 0) {
+                    taskListContainer.innerHTML = `<p class="text-sm text-gray-400 italic p-2">該当タスクはありません</p>`;
+                } else {
+                    mainTasksInColumn.forEach(mainTask => {
+                        taskListContainer.appendChild(createTaskCard(mainTask, tasksToRender));
+                    });
+                }
+            });
+        }
+
+        function createTaskCard(task, allFilteredTasks) {
+            const card = document.createElement('div');
+            card.className = 'task-card draggable-card bg-gray-50 p-3.5 rounded-md shadow hover:shadow-lg border border-gray-200';
+            card.draggable = !task.parentId;
+            card.dataset.taskId = task.id;
+
+            const priorityIcon = getPriorityIcon(task.priority);
+            const assigneeAvatar = createAvatar(task.assignee);
+            const taskActionsHtml = `
+                <div class="task-actions flex items-center space-x-1">
+                    ${assigneeAvatar}
+                    <button class="duplicate-task-btn text-gray-500 hover:text-green-500 p-1 rounded" title="複製"><i class="fas fa-copy"></i></button>
+                    <button class="edit-task-btn text-gray-500 hover:text-blue-500 p-1 rounded" title="編集"><i class="fas fa-edit"></i></button>
+                    <button class="delete-task-btn text-gray-500 hover:text-red-500 p-1 rounded" title="削除"><i class="fas fa-trash-alt"></i></button>
+                </div>
+            `;
+            
+            let subtasksHtml = '';
+            if (!task.parentId) {
+                const subtasksOfThisTask = allFilteredTasks.filter(st => st.parentId === task.id);
+                if (subtasksOfThisTask.length > 0) {
+                    subtasksHtml += '<div class="subtask-list-card space-y-1 mt-2">';
+                    subtasksOfThisTask.forEach(subtask => {
+                        subtasksHtml += `
+                            <div class="subtask-item text-xs" data-subtask-id="${subtask.id}">
+                                <div class="flex items-center">
+                                    <input type="checkbox" class="form-checkbox h-3 w-3 text-indigo-600 border-gray-300 rounded mr-2 toggle-subtask-completion-card" ${subtask.isSubtaskComplete ? 'checked' : ''}>
+                                    <span class="subtask-item-name ${subtask.isSubtaskComplete ? 'completed' : ''}">${subtask.name}</span>
+                                </div>
+                                <div class="subtask-actions space-x-1">
+                                     <button class="edit-subtask-btn-card text-gray-400 hover:text-blue-500 text-xs" title="サブタスク編集"><i class="fas fa-edit"></i></button>
+                                     <button class="delete-subtask-btn-card text-gray-400 hover:text-red-500 text-xs" title="サブタスク削除"><i class="fas fa-trash-alt"></i></button>
+                                </div>
+                            </div>
+                        `;
+                    });
+                    subtasksHtml += '</div>';
+                }
+            }
+
+            card.innerHTML = `
+                <div class="flex justify-between items-start mb-1">
+                    <h3 class="font-medium text-gray-800 leading-tight task-name-link">${task.name}</h3>
+                    <span class="text-xs ${priorityIcon.colorClass} ml-2 flex-shrink-0">${priorityIcon.icon}</span>
+                </div>
+                <p class="text-sm text-gray-600 mt-1 mb-2 break-words">${task.description || '説明なし'}</p>
+                ${subtasksHtml}
+                <div class="mt-2 flex justify-between items-center text-xs text-gray-500 pt-2 border-t border-gray-200">
+                    <div class="flex items-center">
+                        ${task.dueDate ? `<i class="fas fa-calendar-alt mr-1.5"></i><span>${formatDate(task.dueDate)}</span>` : '期限なし'}
+                    </div>
+                    ${taskActionsHtml}
+                </div>
+            `;
+            card.querySelector('.task-name-link').addEventListener('click', (e) => {
+                e.stopPropagation(); openTaskDetailModal(task.id);
+            });
+            card.querySelector('.duplicate-task-btn').addEventListener('click', (e) => { e.stopPropagation(); duplicateTask(task.id); });
+            card.querySelector('.edit-task-btn').addEventListener('click', (e) => { e.stopPropagation(); openCreateEditModal(task.id); });
+            card.querySelector('.delete-task-btn').addEventListener('click', (e) => { e.stopPropagation(); deleteTask(task.id); });
+
+            card.querySelectorAll('.toggle-subtask-completion-card').forEach(checkbox => {
+                checkbox.addEventListener('change', (e) => {
+                    const subtaskId = Number(e.target.closest('.subtask-item').dataset.subtaskId);
+                    toggleSubtaskCompletion(subtaskId);
+                });
+            });
+            card.querySelectorAll('.edit-subtask-btn-card').forEach(button => {
+                 button.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const subtaskId = Number(e.target.closest('.subtask-item').dataset.subtaskId);
+                    openCreateEditModal(subtaskId);
+                });
+            });
+            card.querySelectorAll('.delete-subtask-btn-card').forEach(button => {
+                button.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    const subtaskId = Number(e.target.closest('.subtask-item').dataset.subtaskId);
+                    deleteTask(subtaskId);
+                });
+            });
+
+            return card;
+        }
+
+        function renderListView(tasksToRender) {
+            taskListBody.innerHTML = '';
+            const mainTasks = tasksToRender.filter(task => !task.parentId);
+
+             if (tasksToRender.length === 0) {
+                 taskListBody.innerHTML = `<tr><td colspan="6" class="text-center py-10 text-gray-500">該当タスクはありません。</td></tr>`;
+                 return;
+            }
+
+            mainTasks.forEach(mainTask => {
+                appendTaskRow(mainTask);
+                const subtasksOfMain = tasksToRender.filter(st => st.parentId === mainTask.id);
+                subtasksOfMain.forEach(subtask => {
+                    appendTaskRow(subtask, true);
+                });
+            });
+        }
+
+        function appendTaskRow(task, isSubtask = false) {
+            const row = taskListBody.insertRow();
+            row.className = `hover:bg-gray-50 transition-colors ${isSubtask ? 'subtask-row' : ''}`;
+            const priorityIcon = getPriorityIcon(task.priority);
+            const listTaskActionsHtml = `
+                <button class="duplicate-task-btn text-gray-500 hover:text-green-600 transition-colors p-1" title="複製"><i class="fas fa-copy"></i></button>
+                <button class="edit-task-btn text-indigo-600 hover:text-indigo-900 transition-colors p-1" title="編集"><i class="fas fa-edit"></i></button>
+                <button class="delete-task-btn text-red-600 hover:text-red-900 transition-colors p-1" title="削除"><i class="fas fa-trash-alt"></i></button>
+            `;
+            const checkboxHtml = isSubtask ? `<input type="checkbox" class="form-checkbox h-4 w-4 text-indigo-600 border-gray-300 rounded mr-2 toggle-subtask-completion-list" ${task.isSubtaskComplete ? 'checked' : ''} data-subtask-id="${task.id}">` : '';
+
+            row.innerHTML = `
+                <td class="px-6 py-4 whitespace-normal break-words">
+                    <div class="flex items-center">
+                        ${checkboxHtml}
+                        <span class="text-sm font-medium text-gray-900 task-name-link cursor-pointer hover:text-indigo-600 hover:underline ${task.isSubtaskComplete && isSubtask ? 'completed' : ''}">${task.name}</span>
+                    </div>
+                    ${isSubtask ? '' : `<div class="text-xs text-gray-500">${task.description || ''}</div>`}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${task.assignee || '未割り当て'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${task.dueDate ? formatDate(task.dueDate) : '期限なし'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm">
+                    <span class="flex items-center ${priorityIcon.colorClass}">
+                        ${priorityIcon.icon} <span class="ml-1.5">${getPriorityText(task.priority)}</span>
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColorClass(task.status)}">
+                        ${task.status}
+                    </span>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2 task-actions">
+                    ${listTaskActionsHtml}
+                </td>
+            `;
+            row.querySelector('.task-name-link').addEventListener('click', () => openTaskDetailModal(task.id));
+            row.querySelector('.duplicate-task-btn').addEventListener('click', () => duplicateTask(task.id));
+            row.querySelector('.edit-task-btn').addEventListener('click', () => openCreateEditModal(task.id));
+            row.querySelector('.delete-task-btn').addEventListener('click', () => deleteTask(task.id));
+            if (isSubtask) {
+                const checkbox = row.querySelector('.toggle-subtask-completion-list');
+                if (checkbox) {
+                    checkbox.addEventListener('change', (e) => {
+                        const subtaskId = Number(e.target.dataset.subtaskId);
+                        toggleSubtaskCompletion(subtaskId);
+                    });
+                }
+            }
+        }
+
+        function handleDragStart(event) {
+            const targetCard = event.target.closest('.draggable-card');
+            if (targetCard && !tasks.find(t => t.id === Number(targetCard.dataset.taskId))?.parentId) {
+                draggedTaskId = Number(targetCard.dataset.taskId);
+                targetCard.classList.add('dragging');
+                event.dataTransfer.effectAllowed = 'move';
+                event.dataTransfer.setData('text/plain', draggedTaskId);
+            } else {
+                event.preventDefault();
+            }
+        }
+        function handleDragEnd(event) {
+            const targetCard = event.target.closest('.draggable-card');
+            if (targetCard) {
+                targetCard.classList.remove('dragging');
+            }
+            document.querySelectorAll('.kanban-column').forEach(col => col.classList.remove('drag-over'));
+            draggedTaskId = null;
+        }
+
+        function handleDragOver(event) {
+            event.preventDefault();
+            const column = event.target.closest('.kanban-column');
+            if (column) {
+                event.dataTransfer.dropEffect = 'move';
+            }
+        }
+
+        function handleDragEnter(event) {
+            const column = event.target.closest('.kanban-column');
+            if (column) {
+                column.classList.add('drag-over');
+            }
+        }
+
+        function handleDragLeave(event) {
+            const column = event.target.closest('.kanban-column');
+            if (column) {
+                if (!column.contains(event.relatedTarget)) {
+                    column.classList.remove('drag-over');
+                }
+            }
+        }
+
+        function handleDrop(event) {
+            event.preventDefault();
+            const targetColumn = event.target.closest('.kanban-column');
+            if (targetColumn && draggedTaskId) {
+                const newStatus = targetColumn.dataset.status;
+                const taskIndex = tasks.findIndex(t => t.id === draggedTaskId);
+                if (taskIndex !== -1 && !tasks[taskIndex].parentId && tasks[taskIndex].status !== newStatus) {
+                    tasks[taskIndex].status = newStatus;
+                    renderTasks();
+                }
+                targetColumn.classList.remove('drag-over');
+            }
+            draggedTaskId = null;
+        }
+
+        function getPriorityIcon(priority) {
+            switch (priority) {
+                case 'high': return { icon: '<i class="fas fa-arrow-up"></i>', text: '高', colorClass: 'priority-high' };
+                case 'medium': return { icon: '<i class="fas fa-equals"></i>', text: '中', colorClass: 'priority-medium' };
+                case 'low': return { icon: '<i class="fas fa-arrow-down"></i>', text: '低', colorClass: 'priority-low' };
+                default: return { icon: '', text: '', colorClass: '' };
+            }
+        }
+        function getPriorityText(priority) {
+            const priorityMap = { high: '高', medium: '中', low: '低' };
+            return priorityMap[priority] || '';
+        }
+
+        function getStatusColorClass(status) {
+            switch (status) {
+                case '未着手': return 'bg-gray-100 text-gray-800';
+                case '進行中': return 'bg-blue-100 text-blue-800';
+                case 'レビュー待ち': return 'bg-yellow-100 text-yellow-800';
+                case '完了': return 'bg-green-100 text-green-800';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        }
+        
+        function createAvatar(assigneeName) {
+            if (!assigneeName || assigneeName === "未割り当て") {
+                return `<div class="avatar bg-gray-400" title="未割り当て"><i class="fas fa-user"></i></div>`;
+            }
+            const initials = assigneeName.substring(0, 1);
+            let hash = 0;
+            for (let i = 0; i < assigneeName.length; i++) {
+                hash = assigneeName.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const colorIndex = Math.abs(hash % 5);
+            const colors = ['bg-red-500', 'bg-blue-500', 'bg-green-500', 'bg-yellow-500', 'bg-purple-500'];
+            return `<div class="avatar ${colors[colorIndex]}" title="${assigneeName}">${initials}</div>`;
+        }
+
+        function formatDate(dateString) {
+            if (!dateString) return '';
+            const date = new Date(dateString);
+            return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+        }
+        function formatDateTime(isoString) {
+            if (!isoString) return '';
+            const date = new Date(isoString);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${year}/${month}/${day} ${hours}:${minutes}`;
+        }
+
+        switchView('kanban');
+    </script>
+</body>
+</html>
